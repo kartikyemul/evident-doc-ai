@@ -1,13 +1,17 @@
 """Evident API — v0.1: upload a PDF, get a summary, search for evidence."""
+import os
 import re
 import uuid
 from collections import Counter
 
 import fitz  # PyMuPDF
+from dotenv import load_dotenv
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="Evident API")
+load_dotenv()  # reads backend/.env
+
+app = FastAPI(title="Evident")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],  # add your deployed frontend URL later
@@ -104,14 +108,7 @@ async def upload(file: UploadFile = File(...)):
     }
 
 
-@app.get("/api/search")
-def search(doc_id: str, q: str, limit: int = 8):
-    doc = DOCS.get(doc_id)
-    if not doc:
-        raise HTTPException(404, "Document not found. Upload it again.")
-    q = q.strip()
-    if not q:
-        return {"terms": [], "results": []}
+def find_passages(doc: dict, q: str, limit: int):
     terms = list(dict.fromkeys(words(q))) or [q.lower()]
     results = []
     for p in doc["pages"]:
@@ -129,4 +126,59 @@ def search(doc_id: str, q: str, limit: int = 8):
                     }
                 )
     results.sort(key=lambda r: r["score"], reverse=True)
-    return {"terms": terms + ([q] if len(terms) > 1 else []), "results": results[:limit]}
+    return terms, results[:limit]
+
+
+@app.get("/api/search")
+def search(doc_id: str, q: str, limit: int = 8):
+    doc = DOCS.get(doc_id)
+    if not doc:
+        raise HTTPException(404, "Document not found. Upload it again.")
+    q = q.strip()
+    if not q:
+        return {"terms": [], "results": []}
+    terms, results = find_passages(doc, q, limit)
+    return {"terms": terms + ([q] if len(terms) > 1 else []), "results": results}
+
+
+SYSTEM_PROMPT = (
+    "You answer questions about a document using ONLY the numbered passages provided. "
+    "Cite the page after each claim, like [p. 3]. "
+    "If the passages do not contain the answer, say you could not find it in the document. "
+    "Keep the answer short and plain."
+)
+
+
+@app.get("/api/ask")
+def ask(doc_id: str, q: str):
+    doc = DOCS.get(doc_id)
+    if not doc:
+        raise HTTPException(404, "Document not found. Upload it again.")
+    q = q.strip()
+    if not q:
+        raise HTTPException(400, "Type a question first.")
+
+    _, passages = find_passages(doc, q, limit=5)
+    if not passages:
+        return {"answer": "I could not find anything about this in the document.", "sources": []}
+
+    key = os.getenv("GROQ_API_KEY")
+    if not key:
+        raise HTTPException(500, "GROQ_API_KEY is missing. Add it to backend/.env and restart the server.")
+
+    context = "\n\n".join(f"[Passage {i} | page {r['page']}]\n{r['text']}" for i, r in enumerate(passages, 1))
+    try:
+        from groq import Groq
+
+        reply = Groq(api_key=key).chat.completions.create(
+            model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+            temperature=0.2,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": f"Passages:\n{context}\n\nQuestion: {q}"},
+            ],
+        )
+    except Exception as error:
+        raise HTTPException(502, f"The AI service failed: {error}")
+
+    return {"answer": reply.choices[0].message.content, "sources": passages}

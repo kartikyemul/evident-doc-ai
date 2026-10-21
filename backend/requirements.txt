@@ -2,3 +2,5 @@ fastapi==0.115.*
 uvicorn[standard]==0.32.*
 python-multipart==0.0.*
 pymupdf==1.24.*
+python-dotenv
+groq

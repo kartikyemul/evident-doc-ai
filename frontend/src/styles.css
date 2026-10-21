@@ -72,3 +72,7 @@ input[type="text"], .row input {
 }
 .empty { color: var(--ink-soft); }
 .error { background: color-mix(in srgb, var(--stamp) 12%, var(--surface)); border: 1px solid var(--stamp); border-radius: 8px; padding: 12px 16px; margin-bottom: 20px; }
+
+.answer { background: color-mix(in srgb, var(--marker) 22%, var(--surface)); border-left: 4px solid var(--marker); border-radius: 6px; padding: 14px 16px; margin: 0 0 20px; }
+.answer p { margin: 0 0 6px; font-family: "Newsreader", serif; font-size: 1.15rem; line-height: 1.55; white-space: pre-wrap; max-width: 62ch; }
+.ask.find { margin-top: 8px; padding-top: 20px; border-top: 1px solid var(--line); }

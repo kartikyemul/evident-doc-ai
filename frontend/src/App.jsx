@@ -18,6 +18,9 @@ export default function App() {
   const [drag, setDrag] = useState(false);
   const [query, setQuery] = useState("");
   const [found, setFound] = useState(null); // { terms, results }
+  const [question, setQuestion] = useState("");
+  const [asking, setAsking] = useState(false);
+  const [answer, setAnswer] = useState(null); // { answer, sources }
   const inputRef = useRef(null);
 
   async function upload(file) {
@@ -26,6 +29,8 @@ export default function App() {
     setBusy(true);
     setFound(null);
     setQuery("");
+    setAnswer(null);
+    setQuestion("");
     try {
       const body = new FormData();
       body.append("file", file);
@@ -38,6 +43,24 @@ export default function App() {
       setError(e.message);
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function ask(e) {
+    e.preventDefault();
+    if (!question.trim() || !doc) return;
+    setError("");
+    setAsking(true);
+    try {
+      const url = `${API}/api/ask?doc_id=${doc.doc_id}&q=${encodeURIComponent(question)}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Could not get an answer.");
+      setAnswer(data);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setAsking(false);
     }
   }
 
@@ -100,7 +123,27 @@ export default function App() {
           </section>
 
           <section className="panel">
-            <form onSubmit={search} className="ask">
+            <form onSubmit={ask} className="ask">
+              <label htmlFor="question">Ask a question</label>
+              <div className="row">
+                <input id="question" value={question} onChange={(e) => setQuestion(e.target.value)}
+                       placeholder="What does this document say about…" />
+                <button type="submit" disabled={asking}>{asking ? "Thinking…" : "Ask"}</button>
+              </div>
+            </form>
+
+            {answer && (
+              <div className="answer">
+                <p>{answer.answer}</p>
+                {answer.sources.length > 0 && (
+                  <p className="meta">
+                    Sources: {[...new Set(answer.sources.map((s) => s.page))].map((p) => `p. ${p}`).join(", ")}
+                  </p>
+                )}
+              </div>
+            )}
+
+            <form onSubmit={search} className="ask find">
               <label htmlFor="q">Find evidence</label>
               <div className="row">
                 <input id="q" value={query} onChange={(e) => setQuery(e.target.value)}

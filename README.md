@@ -1,28 +1,34 @@
 # Evident
 
-Ask your documents. See where the answer came from.
+Ask your PDFs. See the proof.
 
-v0.1: upload a PDF, get an extractive summary, search for evidence with page numbers.
+**v0.2** — upload a PDF, get a summary, search the text, and ask questions. Answers come from the most relevant passages and show the pages they came from.
+
+## Stack
+React + Vite · FastAPI · PyMuPDF · Groq API (OpenAI GPT-OSS models, with automatic fallback)
 
 ## Run locally
 **Backend** (Python 3.10+)
 ```
 cd backend
-python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-uvicorn main:app --reload        # http://localhost:8000/docs
+copy .env.example .env        # then paste your Groq key into .env
+python -m uvicorn main:app --reload
 ```
-**Frontend** (Node 18+), in a second terminal
+**Frontend** (Node 18+), second terminal
 ```
 cd frontend
 npm install
-npm run dev                      # http://localhost:5173
+npm run dev                   # http://localhost:5173
 ```
 
+## How Q&A works
+1. PDF text is kept per page.
+2. A question finds the best-matching passages (keyword scoring).
+3. Only those passages go to the model, which must answer from them and cite pages.
+4. The UI shows the answer plus the evidence passages.
+
 ## Roadmap
-1. PDF reader + summary + keyword search (this)
-2. Semantic search (embeddings)
-3. Local RAG with an open-source LLM
-4. Evaluation set
-5. Deployment
+- Semantic search (embeddings)
+- Tests and evaluation set
+- Deployment

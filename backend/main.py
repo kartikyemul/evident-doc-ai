@@ -6,6 +6,7 @@ from collections import Counter
 
 import fitz  # PyMuPDF
 from dotenv import load_dotenv
+from groq import Groq
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -148,6 +149,14 @@ SYSTEM_PROMPT = (
     "Keep the answer short and plain."
 )
 
+# If the chosen model is retired or rate-limited, we quietly try the next one.
+FALLBACK_MODELS = ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "llama-3.1-8b-instant"]
+
+
+def model_chain() -> list[str]:
+    first = os.getenv("GROQ_MODEL", "").strip()
+    return list(dict.fromkeys(([first] if first else []) + FALLBACK_MODELS))
+
 
 @app.get("/api/ask")
 def ask(doc_id: str, q: str):
@@ -158,27 +167,43 @@ def ask(doc_id: str, q: str):
     if not q:
         raise HTTPException(400, "Type a question first.")
 
-    _, passages = find_passages(doc, q, limit=5)
+    terms, passages = find_passages(doc, q, limit=5)
     if not passages:
-        return {"answer": "I could not find anything about this in the document.", "sources": []}
+        # Broad questions ("what is this about?") rarely match keywords,
+        # so fall back to the document's key sentences.
+        passages = [
+            {"page": s["page"], "text": s["text"], "match": "Key sentence", "score": 0}
+            for s in summarize(doc["pages"], 6)
+        ]
 
     key = os.getenv("GROQ_API_KEY")
     if not key:
         raise HTTPException(500, "GROQ_API_KEY is missing. Add it to backend/.env and restart the server.")
 
-    context = "\n\n".join(f"[Passage {i} | page {r['page']}]\n{r['text']}" for i, r in enumerate(passages, 1))
-    try:
-        from groq import Groq
+    context = "\n\n".join(
+        f"[Passage {i} | page {r['page']}]\n{r['text']}" for i, r in enumerate(passages, 1)
+    )
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": f"Passages:\n{context}\n\nQuestion: {q}"},
+    ]
 
-        reply = Groq(api_key=key).chat.completions.create(
-            model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
-            temperature=0.2,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": f"Passages:\n{context}\n\nQuestion: {q}"},
-            ],
-        )
-    except Exception as error:
-        raise HTTPException(502, f"The AI service failed: {error}")
-
-    return {"answer": reply.choices[0].message.content, "sources": passages}
+    client = Groq(api_key=key)
+    last_error = None
+    for model in model_chain():
+        extra = {"reasoning_effort": "low"} if model.startswith("openai/gpt-oss") else {}
+        try:
+            reply = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=0.2,
+                max_completion_tokens=1500,
+                **extra,
+            )
+            text = (reply.choices[0].message.content or "").strip()
+            if text:
+                return {"answer": text, "sources": passages, "terms": terms, "model": model}
+            last_error = "empty answer"
+        except Exception as error:
+            last_error = error
+    raise HTTPException(502, f"The AI service failed on every model. Last error: {last_error}")

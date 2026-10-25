@@ -1,4 +1,5 @@
 """Evident API — v0.1: upload a PDF, get a summary, search for evidence."""
+import json
 import os
 import re
 import uuid
@@ -158,6 +159,32 @@ def model_chain() -> list[str]:
     return list(dict.fromkeys(([first] if first else []) + FALLBACK_MODELS))
 
 
+def call_llm(messages: list[dict], max_tokens: int = 1500) -> tuple[str, str]:
+    """Ask Groq, trying each model in turn. Returns (text, model_used)."""
+    key = os.getenv("GROQ_API_KEY")
+    if not key:
+        raise HTTPException(500, "GROQ_API_KEY is missing. Add it to backend/.env and restart the server.")
+    client = Groq(api_key=key)
+    last_error = None
+    for model in model_chain():
+        extra = {"reasoning_effort": "low"} if model.startswith("openai/gpt-oss") else {}
+        try:
+            reply = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=0.2,
+                max_completion_tokens=max_tokens,
+                **extra,
+            )
+            text = (reply.choices[0].message.content or "").strip()
+            if text:
+                return text, model
+            last_error = "empty answer"
+        except Exception as error:
+            last_error = error
+    raise HTTPException(502, f"The AI service failed on every model. Last error: {last_error}")
+
+
 @app.get("/api/ask")
 def ask(doc_id: str, q: str):
     doc = DOCS.get(doc_id)
@@ -175,35 +202,76 @@ def ask(doc_id: str, q: str):
             {"page": s["page"], "text": s["text"], "match": "Key sentence", "score": 0}
             for s in summarize(doc["pages"], 6)
         ]
-
-    key = os.getenv("GROQ_API_KEY")
-    if not key:
-        raise HTTPException(500, "GROQ_API_KEY is missing. Add it to backend/.env and restart the server.")
-
     context = "\n\n".join(
         f"[Passage {i} | page {r['page']}]\n{r['text']}" for i, r in enumerate(passages, 1)
     )
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": f"Passages:\n{context}\n\nQuestion: {q}"},
-    ]
+    text, model = call_llm(
+        [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": f"Passages:\n{context}\n\nQuestion: {q}"},
+        ]
+    )
+    return {"answer": text, "sources": passages, "terms": terms, "model": model}
 
-    client = Groq(api_key=key)
-    last_error = None
-    for model in model_chain():
-        extra = {"reasoning_effort": "low"} if model.startswith("openai/gpt-oss") else {}
-        try:
-            reply = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=0.2,
-                max_completion_tokens=1500,
-                **extra,
-            )
-            text = (reply.choices[0].message.content or "").strip()
-            if text:
-                return {"answer": text, "sources": passages, "terms": terms, "model": model}
-            last_error = "empty answer"
-        except Exception as error:
-            last_error = error
-    raise HTTPException(502, f"The AI service failed on every model. Last error: {last_error}")
+
+SUMMARY_PROMPT = (
+    "You write plain-English summaries for a complete beginner. Use ONLY the excerpts given. "
+    "Reply with JSON only, no markdown fences, in exactly this shape: "
+    '{"tldr": "1-2 simple sentences: what this document is and its main point", '
+    '"points": [{"text": "one short, clear sentence", "pages": [1]}]} '
+    "Give 4 to 6 points that cover the whole document in order. Use short, everyday words. "
+    "Each point's pages must come from the [p. N] tags of the excerpts it is based on."
+)
+
+
+def condensed_text(doc: dict, budget: int = 12000) -> str:
+    """A small, evenly spread sample of the document, so long PDFs fit the token limit."""
+    pages = doc["pages"]
+    opening = re.sub(r"\s+", " ", pages[0]["text"])[:600]
+    lines = [f"[p. {pages[0]['page']}] {opening}"]
+    lines += [f"[p. {s['page']}] {s['text']}" for s in summarize(pages, 30)]
+    out, used = [], 0
+    for line in lines:
+        if used + len(line) > budget:
+            break
+        out.append(line)
+        used += len(line)
+    return "\n".join(out)
+
+
+def parse_json(text: str):
+    text = re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.M).strip()
+    start, end = text.find("{"), text.rfind("}")
+    try:
+        return json.loads(text[start : end + 1])
+    except Exception:
+        return None
+
+
+@app.get("/api/summary")
+def ai_summary(doc_id: str):
+    doc = DOCS.get(doc_id)
+    if not doc:
+        raise HTTPException(404, "Document not found. Upload it again.")
+    if "ai_summary" in doc:
+        return doc["ai_summary"]
+
+    text, model = call_llm(
+        [
+            {"role": "system", "content": SUMMARY_PROMPT},
+            {"role": "user", "content": f"Excerpts:\n{condensed_text(doc)}"},
+        ],
+        max_tokens=2000,
+    )
+    data = parse_json(text)
+    points = data.get("points") if isinstance(data, dict) else None
+    if not isinstance(data, dict) or not isinstance(data.get("tldr"), str) or not isinstance(points, list):
+        raise HTTPException(502, "The AI returned a summary we could not read. Try again.")
+
+    clean = []
+    for pt in points[:6]:
+        if isinstance(pt, dict) and isinstance(pt.get("text"), str):
+            pages = [n for n in pt.get("pages", []) if isinstance(n, int)]
+            clean.append({"text": pt["text"], "pages": sorted(set(pages))})
+    doc["ai_summary"] = {"tldr": data["tldr"], "points": clean, "model": model}
+    return doc["ai_summary"]

@@ -107,3 +107,8 @@ mark { background: var(--lime); color: inherit; padding: 0 2px; border-radius: 3
 
 .error { background: var(--pink); border: var(--line); border-radius: 12px; box-shadow: 4px 4px 0 var(--ink); padding: 12px 16px; margin-bottom: 24px; font-weight: 600; }
 .foot { margin-top: 40px; font-family: "Space Mono", monospace; font-size: .8rem; }
+
+.tldr { background: var(--yellow); border: var(--line); border-radius: 12px; box-shadow: 4px 4px 0 var(--ink); padding: 12px 16px; margin-bottom: 8px; }
+.tldr p { margin: 0; font-weight: 600; font-size: 1.1rem; }
+.raw { margin-top: 18px; }
+.chip + .chip { margin-left: 6px; }

@@ -29,10 +29,27 @@ export default function App() {
   const [history, setHistory] = useState([]);
   const [query, setQuery] = useState("");
   const [found, setFound] = useState(null);
+  const [summary, setSummary] = useState(null);
+  const [summarizing, setSummarizing] = useState(false);
+  const [summaryError, setSummaryError] = useState("");
   const inputRef = useRef(null);
 
   function reset() {
     setDoc(null); setFound(null); setHistory([]); setQuestion(""); setQuery(""); setError("");
+    setSummary(null); setSummaryError("");
+  }
+
+  async function loadSummary(id) {
+    setSummary(null);
+    setSummaryError("");
+    setSummarizing(true);
+    try {
+      setSummary(await api(`/api/summary?doc_id=${id}`));
+    } catch (e) {
+      setSummaryError(e.message);
+    } finally {
+      setSummarizing(false);
+    }
   }
 
   async function upload(file) {
@@ -42,7 +59,9 @@ export default function App() {
     try {
       const body = new FormData();
       body.append("file", file);
-      setDoc(await api("/api/upload", { method: "POST", body }));
+      const data = await api("/api/upload", { method: "POST", body });
+      setDoc(data);
+      loadSummary(data.doc_id);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -110,18 +129,45 @@ export default function App() {
             </div>
             <button className="btn ghost small" onClick={reset}>Use another PDF</button>
 
-            <h3>Summary</h3>
-            <ol className="summary">
-              {doc.summary.map((s, i) => (
-                <li key={i}>
-                  <span className="num">{i + 1}</span>
-                  <div>
-                    <p>{s.text}</p>
-                    <span className="chip">p. {s.page}</span>
-                  </div>
-                </li>
-              ))}
-            </ol>
+            <h3>In short</h3>
+            {summarizing && <div className="skeleton" aria-label="Writing summary"><i /><i /><i /></div>}
+            {summaryError && (
+              <p className="empty">
+                AI summary unavailable: {summaryError}{" "}
+                <button className="btn ghost small" onClick={() => loadSummary(doc.doc_id)}>Try again</button>
+              </p>
+            )}
+            {summary && (
+              <>
+                <div className="tldr"><p>{summary.tldr}</p></div>
+                <ol className="summary">
+                  {summary.points.map((pt, i) => (
+                    <li key={i}>
+                      <span className="num">{i + 1}</span>
+                      <div>
+                        <p>{pt.text}</p>
+                        {pt.pages.map((n) => <span className="chip" key={n}>p. {n}</span>)}
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              </>
+            )}
+
+            <details className="raw">
+              <summary>Key sentences from the PDF</summary>
+              <ol className="summary">
+                {doc.summary.map((s, i) => (
+                  <li key={i}>
+                    <span className="num">{i + 1}</span>
+                    <div>
+                      <p>{s.text}</p>
+                      <span className="chip">p. {s.page}</span>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </details>
           </section>
 
           <section className="card">

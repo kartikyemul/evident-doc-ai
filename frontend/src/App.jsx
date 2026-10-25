@@ -32,6 +32,7 @@ export default function App() {
   const [summary, setSummary] = useState(null);
   const [summarizing, setSummarizing] = useState(false);
   const [summaryError, setSummaryError] = useState("");
+  const [copied, setCopied] = useState(-1);
   const inputRef = useRef(null);
 
   function reset() {
@@ -83,6 +84,30 @@ export default function App() {
     } finally {
       setAsking(false);
     }
+  }
+
+  async function copyAnswer(text, n) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(n);
+      setTimeout(() => setCopied(-1), 1500);
+    } catch {
+      setError("Could not copy. Select the text and copy it by hand.");
+    }
+  }
+
+  function downloadSummary() {
+    const lines = [doc.name, "", summary.tldr, ""];
+    summary.points.forEach((pt, i) => {
+      const pages = pt.pages.length ? ` (p. ${pt.pages.join(", ")})` : "";
+      lines.push(`${i + 1}. ${pt.text}${pages}`);
+    });
+    const url = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/plain" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = doc.name.replace(/\.pdf$/i, "") + "-summary.txt";
+    link.click();
+    URL.revokeObjectURL(url);
   }
 
   async function search(e) {
@@ -151,6 +176,7 @@ export default function App() {
                     </li>
                   ))}
                 </ol>
+                <button className="btn ghost small" onClick={downloadSummary}>Download summary (.txt)</button>
               </>
             )}
 
@@ -198,6 +224,9 @@ export default function App() {
                       <p>{h.answer}</p>
                       <span className="badge">{h.model}</span>
                     </div>
+                    <button className="btn ghost small copy" onClick={() => copyAnswer(h.answer, n)}>
+                      {copied === n ? "Copied ✓" : "Copy answer"}
+                    </button>
                     {h.sources.length > 0 && (
                       <details>
                         <summary>Evidence ({h.sources.length} passages)</summary>
@@ -211,6 +240,9 @@ export default function App() {
                     )}
                   </article>
                 ))}
+                {history.length > 1 && (
+                  <button className="btn ghost small" style={{ marginTop: 18 }} onClick={() => setHistory([])}>Clear history</button>
+                )}
                 {!asking && history.length === 0 && <p className="empty">Answers appear here with the pages they came from.</p>}
               </>
             ) : (

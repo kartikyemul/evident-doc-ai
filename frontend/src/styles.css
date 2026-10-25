@@ -112,3 +112,5 @@ mark { background: var(--lime); color: inherit; padding: 0 2px; border-radius: 3
 .tldr p { margin: 0; font-weight: 600; font-size: 1.1rem; }
 .raw { margin-top: 18px; }
 .chip + .chip { margin-left: 6px; }
+
+.copy { margin-top: 10px; }

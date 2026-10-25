@@ -1,5 +1,6 @@
 """Evident API — v0.1: upload a PDF, get a summary, search for evidence."""
 import json
+import math
 import os
 import re
 import uuid
@@ -26,7 +27,7 @@ DOCS: dict[str, dict] = {}  # in-memory for now; a database comes later
 
 STOP = set(
     "a an and are as at be but by for from has have he her his i in is it its of on or "
-    "she that the their them they this to was we were what when where which who will with you your".split()
+    "she that the their them they this to was we were what when where which who will with you your how does do did can could should would about there these those than then so if not no also".split()
 )
 
 
@@ -86,6 +87,40 @@ def chunks(text: str) -> list[str]:
     return out
 
 
+def stem(w: str) -> str:
+    """Very simple stemmer so 'policies', 'policy' and 'policys' match each other."""
+    if len(w) > 4 and w.endswith("ies"):
+        w = w[:-3] + "y"
+    else:
+        for suf in ("ing", "ed", "s"):
+            if len(w) > len(suf) + 3 and w.endswith(suf) and not w.endswith("ss"):
+                w = w[: -len(suf)]
+                break
+    if len(w) > 4 and w.endswith("e"):
+        w = w[:-1]
+    return w
+
+
+def stems(text: str) -> set[str]:
+    return {stem(w) for w in words(text)}
+
+
+def index_doc(pages: list[dict]):
+    """Split pages into chunks once, and weight rare words higher (IDF)."""
+    items = [
+        {"page": p["page"], "text": c, "stems": stems(c)}
+        for p in pages
+        for c in chunks(p["text"])
+    ]
+    df = Counter(st for it in items for st in it["stems"])
+    idf = {st: math.log(1 + len(items) / n) for st, n in df.items()}
+    return items, idf
+
+
+def highlight_term(st: str) -> str:
+    return st[:-1] if len(st) > 4 and st.endswith("y") else st
+
+
 @app.get("/api/health")
 def health():
     return {"ok": True}
@@ -100,7 +135,8 @@ async def upload(file: UploadFile = File(...)):
         raise HTTPException(413, "PDF is larger than 20 MB.")
     pages = extract_pages(data)
     doc_id = uuid.uuid4().hex
-    DOCS[doc_id] = {"name": file.filename, "pages": pages}
+    items, idf = index_doc(pages)
+    DOCS[doc_id] = {"name": file.filename, "pages": pages, "items": items, "idf": idf}
     return {
         "doc_id": doc_id,
         "name": file.filename,
@@ -111,24 +147,26 @@ async def upload(file: UploadFile = File(...)):
 
 
 def find_passages(doc: dict, q: str, limit: int):
-    terms = list(dict.fromkeys(words(q))) or [q.lower()]
+    """Rank chunks: rare query words count more, and an exact phrase gets a bonus."""
+    q_words = list(dict.fromkeys(words(q))) or [q.lower()]
+    q_stems = list(dict.fromkeys(stem(w) for w in q_words))
     results = []
-    for p in doc["pages"]:
-        for chunk in chunks(p["text"]):
-            low = chunk.lower()
-            hits = sum(1 for t in terms if t in low)
-            exact = q.lower() in low
-            if hits or exact:
-                results.append(
-                    {
-                        "page": p["page"],
-                        "text": chunk[:700],
-                        "match": "Exact phrase" if exact else "Keyword match",
-                        "score": hits + (10 if exact else 0),
-                    }
-                )
+    for it in doc["items"]:
+        hit = [st for st in q_stems if st in it["stems"]]
+        exact = q.lower() in it["text"].lower()
+        if not hit and not exact:
+            continue
+        score = sum(doc["idf"].get(st, 0) for st in hit) + (5 if exact else 0)
+        results.append(
+            {
+                "page": it["page"],
+                "text": it["text"][:700],
+                "match": "Exact phrase" if exact else "Keyword match",
+                "score": round(score, 2),
+            }
+        )
     results.sort(key=lambda r: r["score"], reverse=True)
-    return terms, results[:limit]
+    return [highlight_term(st) for st in q_stems], results[:limit]
 
 
 @app.get("/api/search")

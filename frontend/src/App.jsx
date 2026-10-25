@@ -6,7 +6,7 @@ const IDEAS = ["What is this document about?", "What are the key points?", "Any 
 function Highlight({ text, terms = [] }) {
   const safe = terms.filter(Boolean).map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
   if (!safe.length) return text;
-  return text.split(new RegExp(`(${safe.join("|")})`, "gi")).map((p, i) =>
+  return text.split(new RegExp(`(\\b(?:${safe.join("|")})\\w*)`, "gi")).map((p, i) =>
     i % 2 ? <mark key={i}>{p}</mark> : <span key={i}>{p}</span>
   );
 }

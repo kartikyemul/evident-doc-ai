@@ -167,7 +167,7 @@ export default function App() {
                 <div className="tldr"><p>{summary.tldr}</p></div>
                 <ol className="summary">
                   {summary.points.map((pt, i) => (
-                    <li key={i}>
+                    <li key={i} style={{ "--i": i }}>
                       <span className="num">{i + 1}</span>
                       <div>
                         <p>{pt.text}</p>
@@ -184,7 +184,7 @@ export default function App() {
               <summary>Key sentences from the PDF</summary>
               <ol className="summary">
                 {doc.summary.map((s, i) => (
-                  <li key={i}>
+                  <li key={i} style={{ "--i": i }}>
                     <span className="num">{i + 1}</span>
                     <div>
                       <p>{s.text}</p>
@@ -203,7 +203,7 @@ export default function App() {
             </div>
 
             {tab === "ask" ? (
-              <>
+              <div className="pane">
                 <form className="row" onSubmit={(e) => { e.preventDefault(); ask(question); }}>
                   <input value={question} onChange={(e) => setQuestion(e.target.value)}
                          placeholder="Ask anything about this PDF…" aria-label="Question" />
@@ -244,9 +244,9 @@ export default function App() {
                   <button className="btn ghost small" style={{ marginTop: 18 }} onClick={() => setHistory([])}>Clear history</button>
                 )}
                 {!asking && history.length === 0 && <p className="empty">Answers appear here with the pages they came from.</p>}
-              </>
+              </div>
             ) : (
-              <>
+              <div className="pane">
                 <form className="row" onSubmit={search}>
                   <input value={query} onChange={(e) => setQuery(e.target.value)}
                          placeholder="A word or phrase from your PDF" aria-label="Search text" />
@@ -263,7 +263,7 @@ export default function App() {
                   </div>
                 ))}
                 {!found && <p className="empty">Search shows the exact passage and its page.</p>}
-              </>
+              </div>
             )}
           </section>
         </main>

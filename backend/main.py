@@ -169,6 +169,17 @@ def find_passages(doc: dict, q: str, limit: int):
     return [highlight_term(st) for st in q_stems], results[:limit]
 
 
+@app.get("/api/page")
+def get_page(doc_id: str, n: int):
+    doc = DOCS.get(doc_id)
+    if not doc:
+        raise HTTPException(404, "Document not found. Upload it again.")
+    for p in doc["pages"]:
+        if p["page"] == n:
+            return {"page": n, "text": p["text"]}
+    raise HTTPException(404, "That page has no readable text.")
+
+
 @app.get("/api/search")
 def search(doc_id: str, q: str, limit: int = 8):
     doc = DOCS.get(doc_id)
@@ -258,6 +269,7 @@ SUMMARY_PROMPT = (
     "cover the beginning, middle and end of the document; one idea per point; short everyday words. "
     "Reply with JSON only, no markdown fences, in exactly this shape: "
     '{"tldr": "1-2 simple sentences: what kind of document this is and its main point", '
+    '"questions": ["a short question a reader might ask", "another", "another"], '
     '"points": [{"text": "one short, clear sentence", "pages": [1]}]} '
     "Give 4 to 6 points. Each point's pages must come from the [p. N] tags of the excerpts it is based on."
 )
@@ -331,5 +343,6 @@ def ai_summary(doc_id: str):
         if isinstance(pt, dict) and isinstance(pt.get("text"), str):
             pages = [n for n in pt.get("pages", []) if isinstance(n, int) and n in valid]
             clean.append({"text": pt["text"], "pages": sorted(set(pages))})
-    doc["ai_summary"] = {"tldr": data["tldr"], "points": clean, "model": model}
+    questions = [q.strip() for q in data.get("questions", []) if isinstance(q, str) and q.strip()][:3]
+    doc["ai_summary"] = {"tldr": data["tldr"], "points": clean, "questions": questions, "model": model}
     return doc["ai_summary"]

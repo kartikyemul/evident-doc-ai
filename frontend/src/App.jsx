@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const API = import.meta.env.VITE_API_URL ?? ""; // empty = same origin (dev proxy)
 const IDEAS = ["What is this document about?", "What are the key points?", "Any important numbers or dates?"];
@@ -33,6 +33,7 @@ export default function App() {
   const [summarizing, setSummarizing] = useState(false);
   const [summaryError, setSummaryError] = useState("");
   const [copied, setCopied] = useState(-1);
+  const [viewer, setViewer] = useState(null); // { page, text, terms }
   const inputRef = useRef(null);
 
   function reset() {
@@ -85,6 +86,26 @@ export default function App() {
       setAsking(false);
     }
   }
+
+  useEffect(() => {
+    const onKey = (e) => e.key === "Escape" && setViewer(null);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  async function openPage(n, terms = []) {
+    try {
+      const data = await api(`/api/page?doc_id=${doc.doc_id}&n=${n}`);
+      setViewer({ ...data, terms });
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
+  const chip = (n, terms) => (
+    <button className="chip link" key={n} onClick={() => openPage(n, terms)} title={`Open page ${n}`}>p. {n}</button>
+  );
+  const ideas = summary?.questions?.length ? summary.questions : IDEAS;
 
   async function copyAnswer(text, n) {
     try {
@@ -171,7 +192,7 @@ export default function App() {
                       <span className="num">{i + 1}</span>
                       <div>
                         <p>{pt.text}</p>
-                        {pt.pages.map((n) => <span className="chip" key={n}>p. {n}</span>)}
+                        {pt.pages.map((n) => chip(n))}
                       </div>
                     </li>
                   ))}
@@ -188,7 +209,7 @@ export default function App() {
                     <span className="num">{i + 1}</span>
                     <div>
                       <p>{s.text}</p>
-                      <span className="chip">p. {s.page}</span>
+                      {chip(s.page)}
                     </div>
                   </li>
                 ))}
@@ -210,7 +231,7 @@ export default function App() {
                   <button className="btn yellow" type="submit" disabled={asking}>{asking ? "Thinking…" : "Ask"}</button>
                 </form>
                 <div className="ideas">
-                  {IDEAS.map((i) => (
+                  {ideas.map((i) => (
                     <button key={i} className="idea" onClick={() => ask(i)} disabled={asking}>{i}</button>
                   ))}
                 </div>
@@ -232,7 +253,7 @@ export default function App() {
                         <summary>Evidence ({h.sources.length} passages)</summary>
                         {h.sources.map((r, i) => (
                           <div className="src" key={i}>
-                            <span className="chip">p. {r.page}</span>
+                            {chip(r.page, h.terms)}
                             <p><Highlight text={r.text} terms={h.terms} /></p>
                           </div>
                         ))}
@@ -256,7 +277,7 @@ export default function App() {
                 {found && found.results.map((r, i) => (
                   <div className="src boxed" key={i}>
                     <div className="src-head">
-                      <span className="chip">p. {r.page}</span>
+                      {chip(r.page, found.terms)}
                       <span className="kind">{r.match}</span>
                     </div>
                     <p><Highlight text={r.text} terms={found.terms} /></p>
@@ -268,7 +289,18 @@ export default function App() {
           </section>
         </main>
       )}
-      <footer className="foot">Evident v0.2 · React + FastAPI + Groq</footer>
+      {viewer && (
+        <div className="overlay" onClick={() => setViewer(null)}>
+          <div className="modal" role="dialog" aria-label={`Page ${viewer.page}`} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <span className="chip">p. {viewer.page}</span>
+              <button className="btn ghost small" onClick={() => setViewer(null)}>Close ✕</button>
+            </div>
+            <div className="page-text"><Highlight text={viewer.text} terms={viewer.terms} /></div>
+          </div>
+        </div>
+      )}
+      <footer className="foot">Evident v0.3 · React + FastAPI + Groq</footer>
     </div>
   );
 }

@@ -197,7 +197,7 @@ def model_chain() -> list[str]:
     return list(dict.fromkeys(([first] if first else []) + FALLBACK_MODELS))
 
 
-def call_llm(messages: list[dict], max_tokens: int = 1500) -> tuple[str, str]:
+def call_llm(messages: list[dict], max_tokens: int = 1500, temperature: float = 0.2) -> tuple[str, str]:
     """Ask Groq, trying each model in turn. Returns (text, model_used)."""
     key = os.getenv("GROQ_API_KEY")
     if not key:
@@ -210,7 +210,7 @@ def call_llm(messages: list[dict], max_tokens: int = 1500) -> tuple[str, str]:
             reply = client.chat.completions.create(
                 model=model,
                 messages=messages,
-                temperature=0.2,
+                temperature=temperature,
                 max_completion_tokens=max_tokens,
                 **extra,
             )
@@ -253,28 +253,46 @@ def ask(doc_id: str, q: str):
 
 
 SUMMARY_PROMPT = (
-    "You write plain-English summaries for a complete beginner. Use ONLY the excerpts given. "
+    "You write accurate, plain-English summaries for a complete beginner. "
+    "Rules: use ONLY the excerpts given; never add outside facts; never invent names, numbers or dates; "
+    "cover the beginning, middle and end of the document; one idea per point; short everyday words. "
     "Reply with JSON only, no markdown fences, in exactly this shape: "
-    '{"tldr": "1-2 simple sentences: what this document is and its main point", '
+    '{"tldr": "1-2 simple sentences: what kind of document this is and its main point", '
     '"points": [{"text": "one short, clear sentence", "pages": [1]}]} '
-    "Give 4 to 6 points that cover the whole document in order. Use short, everyday words. "
-    "Each point's pages must come from the [p. N] tags of the excerpts it is based on."
+    "Give 4 to 6 points. Each point's pages must come from the [p. N] tags of the excerpts it is based on."
 )
 
 
-def condensed_text(doc: dict, budget: int = 12000) -> str:
-    """A small, evenly spread sample of the document, so long PDFs fit the token limit."""
+def condensed_text(doc: dict, budget: int = 14000) -> str:
+    """Take the best sentences from EVERY page, so the summary covers the whole document."""
     pages = doc["pages"]
-    opening = re.sub(r"\s+", " ", pages[0]["text"])[:600]
-    lines = [f"[p. {pages[0]['page']}] {opening}"]
-    lines += [f"[p. {s['page']}] {s['text']}" for s in summarize(pages, 30)]
-    out, used = [], 0
-    for line in lines:
-        if used + len(line) > budget:
-            break
-        out.append(line)
-        used += len(line)
-    return "\n".join(out)
+    if len(pages) > 60:  # very long PDFs: sample 60 pages evenly
+        step = len(pages) / 60
+        pages = [pages[int(k * step)] for k in range(60)]
+    freq = Counter(w for sent in sentences(doc["pages"]) for w in words(sent["text"]))
+    per_page = max(250, budget // len(pages))
+
+    def score(sentence: str) -> float:
+        ws = words(sentence)
+        return sum(freq[w] for w in ws) / (len(ws) ** 0.7 or 1)
+
+    opening = re.sub(r"\s+", " ", pages[0]["text"])[:500]
+    lines = [f"[p. {pages[0]['page']}] (opening) {opening}"]
+    for p in pages:
+        flat = re.sub(r"\s+", " ", p["text"])
+        sents = [x for x in re.split(r"(?<=[.!?])\s+", flat) if len(x.split()) >= 6]
+        if not sents:
+            continue
+        picked, used = [], 0
+        for x in sorted(sents, key=score, reverse=True):
+            if used + len(x) <= per_page:
+                picked.append(x)
+                used += len(x)
+        if not picked:
+            picked = [sorted(sents, key=score, reverse=True)[0][:per_page]]
+        ordered = [x for x in sents if x in picked]  # back to reading order
+        lines.append(f"[p. {p['page']}] " + " ".join(ordered or picked))
+    return "\n".join(lines)
 
 
 def parse_json(text: str):
@@ -300,16 +318,18 @@ def ai_summary(doc_id: str):
             {"role": "user", "content": f"Excerpts:\n{condensed_text(doc)}"},
         ],
         max_tokens=2000,
+        temperature=0.1,
     )
     data = parse_json(text)
     points = data.get("points") if isinstance(data, dict) else None
     if not isinstance(data, dict) or not isinstance(data.get("tldr"), str) or not isinstance(points, list):
         raise HTTPException(502, "The AI returned a summary we could not read. Try again.")
 
+    valid = {p["page"] for p in doc["pages"]}
     clean = []
     for pt in points[:6]:
         if isinstance(pt, dict) and isinstance(pt.get("text"), str):
-            pages = [n for n in pt.get("pages", []) if isinstance(n, int)]
+            pages = [n for n in pt.get("pages", []) if isinstance(n, int) and n in valid]
             clean.append({"text": pt["text"], "pages": sorted(set(pages))})
     doc["ai_summary"] = {"tldr": data["tldr"], "points": clean, "model": model}
     return doc["ai_summary"]

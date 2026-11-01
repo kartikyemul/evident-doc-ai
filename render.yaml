@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: evident-api
+    runtime: python
+    rootDir: backend
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: GROQ_API_KEY
+        sync: false          # you paste this in the Render dashboard, never in code
+      - key: ALLOWED_ORIGINS
+        sync: false          # your Vercel URL, e.g. https://evident-doc-ai.vercel.app
+      - key: GROQ_MODEL
+        value: openai/gpt-oss-120b
+      - key: DAILY_TOKEN_BUDGET
+        value: "60000"
+      - key: ASKS_PER_HOUR
+        value: "10"
+      - key: SUMMARIES_PER_HOUR
+        value: "4"
+      - key: UPLOADS_PER_HOUR
+        value: "6"

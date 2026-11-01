@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-const API = import.meta.env.VITE_API_URL ?? ""; // empty = same origin (dev proxy)
+const API = (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, ""); // empty = same origin (dev proxy)
 const IDEAS = ["What is this document about?", "What are the key points?", "Any important numbers or dates?"];
 
 function Highlight({ text, terms = [] }) {

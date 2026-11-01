@@ -14,7 +14,11 @@ function Highlight({ text, terms = [] }) {
 async function api(path, options) {
   const res = await fetch(`${API}${path}`, options);
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.detail || "Something went wrong.");
+  if (!res.ok) {
+    const err = new Error(data.detail || "Something went wrong.");
+    err.status = res.status;
+    throw err;
+  }
   return data;
 }
 
@@ -34,6 +38,8 @@ export default function App() {
   const [summaryError, setSummaryError] = useState("");
   const [copied, setCopied] = useState(-1);
   const [viewer, setViewer] = useState(null); // { page, text, terms }
+  const [usage, setUsage] = useState(null); // { percent, level, limits }
+  const [notice, setNotice] = useState(null); // { title, text }
   const inputRef = useRef(null);
 
   function reset() {
@@ -49,10 +55,33 @@ export default function App() {
       setSummary(await api(`/api/summary?doc_id=${id}`));
     } catch (e) {
       setSummaryError(e.message);
+      if (e.status === 429) setNotice({ title: "Easy there!", text: e.message });
     } finally {
       setSummarizing(false);
+      refreshUsage();
     }
   }
+
+  async function refreshUsage() {
+    try {
+      setUsage(await api("/api/usage"));
+    } catch {
+      /* the meter is optional */
+    }
+  }
+
+  function fail(e) {
+    if (e.status === 429) setNotice({ title: "Easy there!", text: e.message });
+    else setError(e.message);
+  }
+
+  useEffect(() => { refreshUsage(); }, []);
+  useEffect(() => {
+    if (usage?.level === "high")
+      setNotice({ title: "Heads up", text: `This free demo shares a small daily AI quota, and it is ${usage.percent}% used. If it runs out, search and page viewing still work.` });
+    if (usage?.level === "blocked")
+      setNotice({ title: "AI quota used up", text: "Today's free AI quota is finished. Search and the page viewer still work, and AI answers return after 00:00 UTC." });
+  }, [usage?.level]);
 
   async function upload(file) {
     if (!file) return;
@@ -81,9 +110,10 @@ export default function App() {
       setHistory((h) => [{ q, ...data }, ...h]);
       setQuestion("");
     } catch (e) {
-      setError(e.message);
+      fail(e);
     } finally {
       setAsking(false);
+      refreshUsage();
     }
   }
 
@@ -147,6 +177,13 @@ export default function App() {
       <header className="top">
         <span className="logo">Evident</span>
         <p>Ask your PDFs. <b>See the proof.</b></p>
+        {usage && (
+          <div className={`meter ${usage.level}`} title="Shared free AI quota for today (resets 00:00 UTC)">
+            <span>AI quota today</span>
+            <div className="bar"><i style={{ width: `${usage.percent}%` }} /></div>
+            <b>{usage.percent}%</b>
+          </div>
+        )}
       </header>
 
       {error && <div className="error" role="alert">⚠ {error}</div>}
@@ -228,7 +265,7 @@ export default function App() {
                 <form className="row" onSubmit={(e) => { e.preventDefault(); ask(question); }}>
                   <input value={question} onChange={(e) => setQuestion(e.target.value)}
                          placeholder="Ask anything about this PDF…" aria-label="Question" />
-                  <button className="btn yellow" type="submit" disabled={asking}>{asking ? "Thinking…" : "Ask"}</button>
+                  <button className="btn yellow" type="submit" disabled={asking || usage?.level === "blocked"}>{asking ? "Thinking…" : "Ask"}</button>
                 </form>
                 <div className="ideas">
                   {ideas.map((i) => (
@@ -288,6 +325,13 @@ export default function App() {
             )}
           </section>
         </main>
+      )}
+      {notice && (
+        <div className="toast" role="alert">
+          <b>{notice.title}</b>
+          <p>{notice.text}</p>
+          <button className="btn ghost small" onClick={() => setNotice(null)}>Got it</button>
+        </div>
       )}
       {viewer && (
         <div className="overlay" onClick={() => setViewer(null)}>

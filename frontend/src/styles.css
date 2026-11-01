@@ -143,3 +143,12 @@ button.chip { cursor: default; color: var(--ink); line-height: 1.5; }
 .modal { width: min(720px, 100%); max-height: 85vh; overflow: auto; background: var(--white); border: var(--line); border-radius: 16px; box-shadow: 8px 8px 0 var(--ink); padding: 20px; animation: pop .3s ease both; }
 .modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .page-text { white-space: pre-wrap; font-size: .95rem; line-height: 1.6; }
+
+/* ---- usage meter + notice ---- */
+.meter { display: inline-flex; align-items: center; gap: 10px; margin-top: 14px; font-size: .85rem; font-weight: 700; }
+.bar { width: 120px; height: 14px; background: var(--white); border: 2px solid var(--ink); border-radius: 99px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--mint); transition: width .5s ease; }
+.meter.high .bar i { background: var(--yellow); }
+.meter.blocked .bar i { background: var(--pink); }
+.toast { position: fixed; right: 20px; bottom: 20px; z-index: 60; width: min(360px, calc(100% - 40px)); background: var(--yellow); border: var(--line); border-radius: 14px; box-shadow: 6px 6px 0 var(--ink); padding: 14px 16px; animation: pop .3s ease both; }
+.toast p { margin: 4px 0 10px; }

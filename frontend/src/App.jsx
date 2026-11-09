@@ -40,6 +40,7 @@ export default function App() {
   const [viewer, setViewer] = useState(null); // { page, text, terms }
   const [usage, setUsage] = useState(null); // { percent, level, limits }
   const [notice, setNotice] = useState(null); // { title, text }
+  const [slow, setSlow] = useState(false);
   const inputRef = useRef(null);
 
   function reset() {
@@ -83,10 +84,17 @@ export default function App() {
       setNotice({ title: "AI quota used up", text: "Today's free AI quota is finished. Search and the page viewer still work, and AI answers return after 00:00 UTC." });
   }, [usage?.level]);
 
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(null), 9000); // popup closes itself
+    return () => clearTimeout(t);
+  }, [notice]);
+
   async function upload(file) {
     if (!file) return;
     reset();
     setBusy(true);
+    const timer = setTimeout(() => setSlow(true), 6000);
     try {
       const body = new FormData();
       body.append("file", file);
@@ -96,6 +104,8 @@ export default function App() {
     } catch (e) {
       setError(e.message);
     } finally {
+      clearTimeout(timer);
+      setSlow(false);
       setBusy(false);
     }
   }
@@ -197,7 +207,9 @@ export default function App() {
         >
           <div className="drop-icon" aria-hidden="true">PDF</div>
           <h2>{busy ? "Reading your PDF…" : "Drop a PDF here"}</h2>
-          <p>Text-based PDFs up to 20 MB. Scanned pages aren’t supported yet.</p>
+          <p>Text-based PDFs up to {usage?.limits?.max_upload_mb ?? 10} MB. Scanned pages aren’t supported yet.</p>
+          {slow && <p className="slow">Waking up the free server… this can take up to a minute.</p>}
+          <p className="fine">Free demo: a small shared AI quota keeps it at zero cost. Search always works.</p>
           <button className="btn pink" onClick={() => inputRef.current.click()} disabled={busy}>Choose a file</button>
           <input ref={inputRef} type="file" accept="application/pdf" hidden onChange={(e) => upload(e.target.files[0])} />
         </div>
@@ -344,7 +356,7 @@ export default function App() {
           </div>
         </div>
       )}
-      <footer className="foot">Evident v0.3 · React + FastAPI + Groq</footer>
+      <footer className="foot">Evident v1.0 · React + FastAPI + Groq · <a href="https://github.com/kartikyemul/evident-doc-ai" target="_blank" rel="noreferrer">GitHub</a></footer>
     </div>
   );
 }
